@@ -1,5 +1,4 @@
 const axios = require('axios');
-
 const tenantId = process.env.PBIE_TENANT_ID;
 const clientSecret = process.env.PBIE_CLIENT_SECRET;
 const clientId = process.env.PBIE_CLIENT_ID;
@@ -8,21 +7,20 @@ const reportId = process.env.PBIE_REPORT_ID;
 const username = process.env.PBIE_USERNAME;
 const password = process.env.PBIE_PASSWORD;
 const powerBiUrl = "https://api.powerbi.com/v1.0/myorg/groups/" + groupId + "/dashboards/" + reportId;
+const post = "post";
 
-async function httpRequest(method, url, headers, data) {
-    try {
-        const httpResponse = await axios({ method, url, headers, data });
-        return httpResponse.data;
-    } catch (err) {
-        console.log("Http Request Error", err);
+module.exports = async function(context) {
+
+    async function httpRequest(method, url, headers, data) {
+        try {
+            const httpResponse = await axios({ method, url, headers, data });
+            return httpResponse.data;
+        } catch (err) {
+            console.log("Http Request Error", err);
+        }
     }
-}
 
-module.exports = async function(context, req) {
-
-    context.log("req: ", req);
     async function fetchAccessToken() {
-
         const authUrl = "https://login.microsoftonline.com/" + tenantId + "/oauth2/token";
         const resource = "https://analysis.windows.net/powerbi/api";
         const dataBody = {
@@ -34,18 +32,16 @@ module.exports = async function(context, req) {
             username
         };
         const data = Object.keys(dataBody).map(key => key + '=' + dataBody[key]).join('&');
-
         const headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Accept': 'application/json, text/plain, */*'
         };
 
         try {
-            const authResponse = await httpRequest("post", authUrl, headers, data);
-            tokenAquired = true;
+            const authResponse = await httpRequest(post, authUrl, headers, data);
             return authResponse.access_token;
         } catch (err) {
-            console.log("fetchAccessTokenError: ", err);
+            context.log("fetchAccessTokenError: ", err);
         }
     }
 
@@ -54,10 +50,13 @@ module.exports = async function(context, req) {
             "Authorization": "Bearer " + accessToken
         };
 
-        const response = await httpRequest("get", powerBiUrl, embedUrlHeaders);
-        // console.log("response -->", response)
-        return response.embedUrl;
-
+        try {
+            const embedUrlResponse = await httpRequest("get", powerBiUrl, embedUrlHeaders);
+            contet.log("embed response", embedUrlResponse);
+            return embedUrlResponse.embedUrl;
+        } catch (err) {
+            context.log("Fetch Embed Url Error: ", err);
+        }
     }
 
     async function fetchEmbedToken(accessToken) {
@@ -69,23 +68,33 @@ module.exports = async function(context, req) {
         const embedTokenBody = {
             accessLevel: "view"
         };
-        const response = await httpRequest("post", url, embedTokenHeaders, embedTokenBody);
-        // console.log("embed token", response);
-        return response.token;
 
+        try {
+            const response = await httpRequest(post, url, embedTokenHeaders, embedTokenBody);
+            return response.token;
+        } catch (err) {
+            context.log("Fetch Embed Token Error: ", err);
+        }
     }
 
-    return await fetchAccessToken()
-        .then(token => {
-            const embedUrl = fetchEmbedUrl(token);
-            // console.log("embedUrl: ", embedUrl);
-            const embedToken = fetchEmbedToken(token);
-            // console.log("embedToken: ", embedToken);
-            return Promise.all([embedUrl, embedToken]);
+    const data = await fetchAccessToken()
+        .then(accessToken => {
+            const embedUrl = fetchEmbedUrl(accessToken);
+            const embedToken = fetchEmbedToken(accessToken);
+
+            return Promise.all([embedUrl, embedToken, accessToken]);
         })
         .then((resp) => {
-            return { embedUrl: resp[0], embedToken: resp[1], reportId };
+            context.log("resp", resp);
+            const result = { accessToken: resp[2], embedUrl: resp[0], embedToken: resp[1], reportId };
+            context.log('Result: ', result);
+            return result;
         })
-        .catch(err => console.log("Error on main function return: ", err));
+        .catch(err => context.log("Error on main function return: ", err));
 
+    context.res = {
+        body: JSON.stringify(data)
+    };
+
+    context.done();
 };
