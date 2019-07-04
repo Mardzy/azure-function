@@ -52,7 +52,7 @@ module.exports = async function(context) {
 
         try {
             const embedUrlResponse = await httpRequest("get", powerBiUrl, embedUrlHeaders);
-            contet.log("embed response", embedUrlResponse);
+            context.log("embed response", embedUrlResponse);
             return embedUrlResponse.embedUrl;
         } catch (err) {
             context.log("Fetch Embed Url Error: ", err);
